@@ -16,13 +16,21 @@ test_disappearing_class() {
   fi
   set -e
 }
+md5_util() {
+if [[ "$OSTYPE" == "darwin"* ]]; then
+   _md5_util="md5"
+else
+   _md5_util="md5sum"
+fi
+echo "$_md5_util"
+}
 
 test_build_is_identical() {
   bazel build test/...
-  md5sum bazel-bin/test/*.jar > hash1
+  $(md5_util) bazel-bin/test/*.jar > hash1
   bazel clean
   bazel build test/...
-  md5sum bazel-bin/test/*.jar > hash2
+  $(md5_util) bazel-bin/test/*.jar > hash2
   diff hash1 hash2
 }
 
@@ -90,7 +98,6 @@ run_test bazel run test:ScalaLibBinary
 run_test test_disappearing_class
 run_test find -L ./bazel-testlogs -iname "*.xml"
 run_test xmllint_test
-run_test test_disappearing_class
 run_test test_build_is_identical
 run_test test_transitive_deps
 run_test test_repl

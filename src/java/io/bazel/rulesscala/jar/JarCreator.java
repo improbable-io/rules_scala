@@ -66,10 +66,13 @@ public class JarCreator extends JarHelper {
    *
    * @param directory the directory to add to the jar
    */
-  public void addDirectory(String directory) {
-    addDirectory(null, new File(directory));
+  public void addDirectory(File directory) {
+    addDirectory(null, directory);
   }
 
+  public void addJar(File file) {
+    jarEntries.put(file.getAbsolutePath(), file.getAbsolutePath());
+  }
   /**
    * Adds the contents of a directory to the Jar file. All files below this
    * directory will be added to the Jar file using the prefix and the name
@@ -170,10 +173,7 @@ public class JarCreator extends JarHelper {
     }
   }
 
-  /**
-   * A simple way to create Jar file using the JarCreator class.
-   */
-  public static void main(String[] args) {
+  public static void buildJar(String[] args) throws IOException {
     if (args.length < 1) {
       System.err.println("usage: CreateJar [-m manifest] output [root directories]");
       System.exit(1);
@@ -189,19 +189,29 @@ public class JarCreator extends JarHelper {
     JarCreator createJar = new JarCreator(output);
     createJar.setManifestFile(manifestFile);
     for (int i = (idx+1); i < args.length; i++) {
-      createJar.addDirectory(args[i]);
+      String thisName = args[i];
+      File f = new File(thisName);
+      if (JarHelper.isJar(f)) {
+        createJar.addJar(f);
+      }
+      else {
+        createJar.addDirectory(f);
+      }
     }
     createJar.setCompression(true);
     createJar.setNormalize(true);
-    long start = System.currentTimeMillis();
+    createJar.execute();
+  }
+
+  /**
+   * A simple way to create Jar file using the JarCreator class.
+   */
+  public static void main(String[] args) {
     try {
-      createJar.execute();
+      buildJar(args);
     } catch (Throwable e) {
       e.printStackTrace();
       System.exit(1);
     }
-    long stop = System.currentTimeMillis();
-    //System.err.println((stop - start) + "ms.");
-    //System.err.println(output);
   }
 }

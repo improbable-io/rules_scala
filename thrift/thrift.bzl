@@ -2,11 +2,40 @@
 
 _thrift_filetype = FileType([".thrift"])
 
+def _common_prefix(strings):
+  pref = None
+  for s in strings:
+    if pref == None:
+      pref = s
+    elif s.startswith(pref):
+      pass
+    else:
+      tmp_pref = pref
+      for end in range(0, len(pref) + 1):
+        test = pref[0:end]
+        if s.startswith(test):
+          tmp_pref = test
+      pref = tmp_pref
+  return pref
+
 def _thrift_library_impl(ctx):
   prefix = ctx.attr.absolute_prefix
+  src_paths = [f.path for f in ctx.files.srcs]
+  if len(src_paths) <= 0:
+    fail("we require at least one thrift file in a target")
+
   jarcmd = "{jar} cMf {out} -C {out}_tmp ."
   if prefix != '':
-    jarcmd = "{{jar}} cMf {{out}} -C {{out}}_tmp/{prefix} .".format(prefix=prefix)
+    common_prefix = _common_prefix(src_paths)
+    pos = common_prefix.find(prefix)
+    if pos < 0:
+      fail("could not find prefix: {prefix} in the common prefix: {common_prefix}".format(
+          prefix = prefix,
+          common_prefix = common_prefix))
+    else:
+      endpos = pos + len(prefix)
+      actual_prefix = common_prefix[0:endpos]
+      jarcmd = "{{jar}} cMf {{out}} -C {{out}}_tmp/{pf} .".format(pf=actual_prefix)
 
   _valid_thrift_deps(ctx.attr.deps)
   # We move the files and touch them so that the output file is a purely deterministic
@@ -15,7 +44,7 @@ def _thrift_library_impl(ctx):
 rm -rf {out}_tmp
 mkdir -p {out}_tmp
 {jar} cMf {out}_tmp/tmp.jar $@
-unzip -o {out}_tmp/tmp.jar -d {out}_tmp 2>/dev/null
+unzip -q -o {out}_tmp/tmp.jar -d {out}_tmp 2>/dev/null
 rm -rf {out}_tmp/tmp.jar
 find {out}_tmp -exec touch -t 198001010000 {{}} \;
 """ + jarcmd + """
@@ -23,6 +52,7 @@ rm -rf {out}_tmp"""
 
   cmd = cmd.format(out=ctx.outputs.libarchive.path,
                    jar=ctx.file._jar.path)
+
   ctx.action(
     inputs = ctx.files.srcs +
       ctx.files._jar +
@@ -30,7 +60,7 @@ rm -rf {out}_tmp"""
     outputs = [ctx.outputs.libarchive],
     command = cmd,
     progress_message = "making thrift archive %s" % ctx.label,
-    arguments = [f.path for f in ctx.files.srcs],
+    arguments = src_paths,
   )
 
   transitive_srcs = _collect_thrift_srcs(ctx.attr.deps)
@@ -84,7 +114,7 @@ thrift_library = rule(
       # or whatever, but I think that we should make it such that the archive
       # created by this is created in such a way that absolute imports work...
       "absolute_prefix": attr.string(default='', mandatory=False),
-      "_jar": attr.label(executable=True, default=Label("@bazel_tools//tools/jdk:jar"), single_file=True, allow_files=True),
+      "_jar": attr.label(executable=True, cfg="host", default=Label("@bazel_tools//tools/jdk:jar"), single_file=True, allow_files=True),
       "_jdk": attr.label(default=Label("//tools/defaults:jdk"), allow_files=True),
   },
   outputs={"libarchive": "lib%{name}.jar"},
