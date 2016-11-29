@@ -1,6 +1,7 @@
 java_binary(name = "scalac",
   main_class = "io.bazel.rulesscala.scalac.ScalaCInvoker",
   srcs = ["ScalaCInvoker.java", "CompileOptions.java"],
+  jvm_flags = ["-Xmx16G"],
 
   deps = [
     "@scala//:lib/scala-library.jar",
