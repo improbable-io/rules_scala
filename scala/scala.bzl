@@ -612,7 +612,7 @@ scala_macro_library = rule(
       "exports": attr.label_list(allow_files=False),
       } + _implicit_deps + _common_attrs,
   outputs={
-      "jar": "%{name}.jar",
+      "jar": "lib%{name}.jar",
       "deploy_jar": "%{name}_deploy.jar",
       "manifest": "%{name}_MANIFEST.MF",
       },
