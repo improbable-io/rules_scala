@@ -561,7 +561,7 @@ def yolocopy(name, index, jar):
 
 # guesses the jar name of a scala dependency target
 def convertScalaTargetToJar(target):
-  if target.endswith("jar"): # maven JAR artifacts
+  if target.endswith("//jar") or target.endswith("//file"): # maven JAR and HTTP file artifacts
     return target
   elif target.find(":") == -1: # default target dependencies like //foo/bar
     parts = target.split("/")
@@ -612,7 +612,7 @@ scala_macro_library = rule(
       "exports": attr.label_list(allow_files=False),
       } + _implicit_deps + _common_attrs,
   outputs={
-      "jar": "%{name}.jar",
+      "jar": "lib%{name}.jar",
       "deploy_jar": "%{name}_deploy.jar",
       "manifest": "%{name}_MANIFEST.MF",
       },
