@@ -9,7 +9,7 @@ load("//scala:scala.bzl",
 def twitter_scrooge():
   native.maven_server(
     name = "twitter_scrooge_maven_server",
-    url = "http://bazel-mirror.storage.googleapis.com/repo1.maven.org/maven2/",
+    url = "http://mirror.bazel.build/repo1.maven.org/maven2/",
   )
 
   native.maven_jar(
@@ -18,7 +18,6 @@ def twitter_scrooge():
     sha1 = "2203b4df04943f4d52c53b9608cef60c08786ef2",
     server = "twitter_scrooge_maven_server",
   )
-
   native.bind(name = 'io_bazel_rules_scala/dependency/thrift/libthrift', actual = '@libthrift//jar')
 
   native.maven_jar(
@@ -27,7 +26,6 @@ def twitter_scrooge():
     sha1 = "84b86c2e082aba6e0c780b3c76281703b891a2c8",
     server = "twitter_scrooge_maven_server",
   )
-
   native.bind(name = 'io_bazel_rules_scala/dependency/thrift/scrooge_core', actual = '@scrooge_core//jar')
 
   #scrooge-generator related dependencies
@@ -37,28 +35,33 @@ def twitter_scrooge():
     sha1 = "cacf72eedeb5309ca02b2d8325c587198ecaac82",
     server = "twitter_scrooge_maven_server",
   )
+  native.bind(name = 'io_bazel_rules_scala/dependency/thrift/scrooge_generator', actual = '@scrooge_generator//jar')
+
   native.maven_jar(
     name = "util_core",
     artifact = scala_mvn_artifact("com.twitter:util-core:6.33.0"),
     sha1 = "bb49fa66a3ca9b7db8cd764d0b26ce498bbccc83",
     server = "twitter_scrooge_maven_server",
   )
+  native.bind(name = 'io_bazel_rules_scala/dependency/thrift/util_core', actual = '@util_core//jar')
+
   native.maven_jar(
     name = "util_logging",
     artifact = scala_mvn_artifact("com.twitter:util-logging:6.33.0"),
     sha1 = "3d28e46f8ee3b7ad1b98a51b98089fc01c9755dd",
     server = "twitter_scrooge_maven_server",
   )
+  native.bind(name = 'io_bazel_rules_scala/dependency/thrift/util_logging', actual = '@util_logging//jar')
 
 def _collect_transitive_srcs(targets):
-  r = set()
+  r = depset()
   for target in targets:
     if hasattr(target, "thrift"):
       r += target.thrift.transitive_srcs
   return r
 
 def _collect_owned_srcs(targets):
-  r = set()
+  r = depset()
   for _target in targets:
     if hasattr(_target, "extra_information"):
       for target in _target.extra_information:
@@ -66,8 +69,19 @@ def _collect_owned_srcs(targets):
           r += target.scrooge_srcjar.transitive_owned_srcs
   return r
 
+def _collect_external_jars(targets):
+  r = depset()
+  for target in targets:
+    if hasattr(target, "thrift"):
+      thrift = target.thrift
+      if hasattr(thrift, "external_jars"):
+        for jar in thrift.external_jars:
+          r += _jar_filetype.filter(jar.files)
+      r += _jar_filetype.filter(thrift.transitive_external_jars)
+  return r
+
 def collect_extra_srcjars(targets):
-  srcjars = set()
+  srcjars = depset()
   for target in targets:
     if hasattr(target, "extra_information"):
       for _target in target.extra_information:
@@ -76,28 +90,32 @@ def collect_extra_srcjars(targets):
   return srcjars
 
 def _collect_immediate_srcs(targets):
-  r = set()
+  r = depset()
   for target in targets:
     if hasattr(target, "thrift"):
       r += [target.thrift.srcs]
   return r
 
-def _assert_set_is_subset(left, right):
-  missing = set()
-  for l in left:
-    if l not in right:
-      missing += [l]
+def _assert_set_is_subset(want, have):
+  missing = depset()
+  for e in want:
+    if e not in have:
+      missing += [e]
   if len(missing) > 0:
     fail('scrooge_srcjar target must depend on scrooge_srcjar targets sufficient to ' +
          'cover the transitive graph of thrift files. Uncovered sources: ' + str(missing))
 
-def _path_newline(data):
-  return '\n'.join([f.path for f in data])
+def _colon_paths(data):
+  return ':'.join([f.path for f in data])
 
 def _gen_scrooge_srcjar_impl(ctx):
-  remote_jars = set()
+  remote_jars = depset()
   for target in ctx.attr.remote_jars:
     remote_jars += _jar_filetype.filter(target.files)
+
+  # These are JARs that are declared externally and only have Thrift files 
+  # in them.
+  external_jars = _collect_external_jars(ctx.attr.deps)
 
   # These are the thrift sources whose generated code we will "own" as a target
   immediate_thrift_srcs = _collect_immediate_srcs(ctx.attr.deps)
@@ -111,10 +129,9 @@ def _gen_scrooge_srcjar_impl(ctx):
   # These are the thrift sources in the dependency graph. They are necessary
   # to generate the code, but are not "owned" by this target and will not
   # be in the resultant source jar
-
   transitive_thrift_srcs = transitive_owned_srcs + _collect_transitive_srcs(ctx.attr.deps)
 
-  only_transitive_thrift_srcs = set()
+  only_transitive_thrift_srcs = depset()
   for src in transitive_thrift_srcs:
     if src not in immediate_thrift_srcs:
       only_transitive_thrift_srcs += [src]
@@ -123,40 +140,45 @@ def _gen_scrooge_srcjar_impl(ctx):
   # in order to generate code) have targets which will compile them.
   _assert_set_is_subset(only_transitive_thrift_srcs, transitive_owned_srcs)
 
-  remote_jars_file = ctx.new_file(ctx.outputs.srcjar, ctx.outputs.srcjar.short_path + "_remote_jars")
-  ctx.file_action(output=remote_jars_file, content=_path_newline(remote_jars))
+  # bazel worker arguments cannot be empty so we pad to ensure non-empty
+  # and drop it off on the other side
+  # https://github.com/bazelbuild/bazel/issues/3329
+  worker_arg_pad = "_"
+  path_content = "\n".join([worker_arg_pad + _colon_paths(ps) for ps in [immediate_thrift_srcs, only_transitive_thrift_srcs, remote_jars, external_jars]])
+  worker_content = "{output}\n{paths}\n".format(output = ctx.outputs.srcjar.path, paths = path_content)
 
-  only_transitive_thrift_srcs_file = ctx.new_file(ctx.outputs.srcjar, ctx.outputs.srcjar.short_path + "_only_transitive_thrift_srcs")
-  ctx.file_action(output = only_transitive_thrift_srcs_file, content = _path_newline(only_transitive_thrift_srcs))
-
-  immediate_thrift_srcs_file = ctx.new_file(ctx.outputs.srcjar, ctx.outputs.srcjar.short_path + "_immediate_thrift_srcs")
-  ctx.file_action(output = immediate_thrift_srcs_file, content = _path_newline(immediate_thrift_srcs))
-
+  argfile = ctx.new_file(ctx.outputs.srcjar, "%s_worker_input" % ctx.label.name)
+  ctx.file_action(output=argfile, content=worker_content)
   ctx.action(
     executable = ctx.executable._pluck_scrooge_scala,
     inputs = list(remote_jars) +
         list(only_transitive_thrift_srcs) +
+        list(external_jars) +
         list(immediate_thrift_srcs) +
-        [remote_jars_file,
-         only_transitive_thrift_srcs_file,
-         immediate_thrift_srcs_file],
+        [argfile],
     outputs = [ctx.outputs.srcjar],
-    arguments = [
-      only_transitive_thrift_srcs_file.path,
-      immediate_thrift_srcs_file.path,
-      ctx.outputs.srcjar.path,
-      remote_jars_file.path,
-    ],
+    mnemonic="ScroogeRule",
     progress_message = "creating scrooge files %s" % ctx.label,
+    execution_requirements={"supports-workers": "1"},
+    #  when we run with a worker, the `@argfile.path` is removed and passed
+    #  line by line as arguments in the protobuf. In that case,
+    #  the rest of the arguments are passed to the process that
+    #  starts up and stays resident.
+
+    # In either case (worker or not), they will be jvm flags which will
+    # be correctly handled since the executable is a jvm app that will
+    # consume the flags on startup.
+
+    arguments=["--jvm_flag=%s" % flag for flag in ctx.attr.jvm_flags] + ["@" + argfile.path],
   )
 
-  jars = _collect_scalaattr(ctx.attr.deps)
+  deps_jars = _collect_jars(ctx.attr.deps)
 
-  scalaattr = struct(outputs = None,
-                     transitive_runtime_deps = jars.transitive_runtime_deps,
-                     transitive_compile_exports = jars.transitive_compile_exports,
-                     transitive_runtime_exports = jars.transitive_runtime_exports,
-                     )
+  scalaattr = struct(
+      outputs = None,
+      compile_jars = deps_jars.compile_jars,
+      transitive_runtime_jars = deps_jars.transitive_runtime_jars,
+  )
 
   transitive_srcjars = collect_srcjars(ctx.attr.deps) + collect_extra_srcjars(ctx.attr.deps)
 
@@ -174,22 +196,20 @@ def _gen_scrooge_srcjar_impl(ctx):
     )],
   )
 
-def _collect_scalaattr(targets):
-  transitive_runtime_deps = set()
-  transitive_compile_exports = set()
-  transitive_runtime_exports = set()
+# TODO(twigg): Use the one in scala.bzl?
+def _collect_jars(targets):
+  compile_jars = depset()
+  transitive_runtime_jars = depset()
+
   for target in targets:
-    if hasattr(target, "scala"):
-      transitive_runtime_deps += target.scala.transitive_runtime_deps
-      transitive_compile_exports += target.scala.transitive_compile_exports
-      if hasattr(target.scala.outputs, "ijar"):
-        transitive_compile_exports += [target.scala.outputs.ijar]
-      transitive_runtime_exports += target.scala.transitive_runtime_exports
+    if java_common.provider in target:
+      java_provider = target[java_common.provider]
+      compile_jars += java_provider.compile_jars
+      transitive_runtime_jars += java_provider.transitive_runtime_jars
 
   return struct(
-    transitive_runtime_deps = transitive_runtime_deps,
-    transitive_compile_exports = transitive_compile_exports,
-    transitive_runtime_exports = transitive_runtime_exports,
+    compile_jars = compile_jars,
+    transitive_runtime_jars = transitive_runtime_jars,
   )
 
 scrooge_scala_srcjar = rule(
@@ -201,10 +221,11 @@ scrooge_scala_srcjar = rule(
         #     is saying that we have a jar with a bunch
         #     of thrifts that we want to depend on. Seems like
         #     that should be a concern of thrift_library? we have
-        #     it here through becuase we need to show that it is
+        #     it here through because we need to show that it is
         #     "covered," as well as needing the thrifts to
         #     do the code gen.
         "remote_jars": attr.label_list(),
+        "jvm_flags": attr.string_list(),  # the jvm flags to use with the generator
         "_pluck_scrooge_scala": attr.label(
           executable=True,
           cfg="host",
@@ -225,6 +246,8 @@ def scrooge_scala_library(name, deps=[], remote_jars=[], jvm_flags=[], visibilit
         visibility = visibility,
     )
 
+    # deps from macro invocation would come via srcjar
+    # however, retained to make dependency analysis via aspects easier
     scala_library(
         name = name,
         deps = deps + remote_jars + [

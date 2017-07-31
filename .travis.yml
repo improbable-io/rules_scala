@@ -1,26 +1,49 @@
-addons:
-  apt:
-    sources:
-      - ubuntu-toolchain-r-test
-    packages:
-      - gcc-4.8
-      - g++-4.8
-      - libxml2-utils
-      - wget
-      # Package list from http://bazel.io/docs/install.html
-      - pkg-config
-      - zip
-      - unzip
-      - zlib1g-dev
-jdk:
-  - oraclejdk8
+# trusty beta image has jdk8, gcc4.8.4
+dist: trusty
+sudo: required
+# xcode8 has jdk8
+osx_image: xcode8
+# Not technically required but suppresses 'Ruby' in Job status message.
+language: java
+
+os:
+  - linux
+  - osx
+
+env:
+  - V=HEAD
+  - V=0.5.2
 
 before_install:
-  - wget 'https://github.com/bazelbuild/bazel/releases/download/0.3.2/bazel-0.3.2-installer-linux-x86_64.sh'
-  - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
-  - chmod +x bazel-0.3.2-installer-linux-x86_64.sh
-  - ./bazel-0.3.2-installer-linux-x86_64.sh --user
-  - mv .bazelrc.travis .bazelrc
+  - |
+    if [[ "${TRAVIS_OS_NAME}" == "osx" ]]; then
+      OS=darwin
+    else
+      sysctl kernel.unprivileged_userns_clone=1
+      sudo apt-get update -q 
+      sudo apt-get install libxml2-utils -y
+      OS=linux
+    fi
+    if [[ "${V}" == "HEAD" ]]; then
+      # Determine last successful build number. This may change while we are
+      # downloading, so it's important to determine ahead of time, in case
+      # we need to resume the download.
+      CI_INDEX_URL="http://ci.bazel.io/view/Bazel%20bootstrap%20and%20maintenance/job/Global/job/pipeline/lastSuccessfulBuild/artifact/node=${OS}-x86_64/variation="
+      wget -q -O build-index.html "${CI_INDEX_URL}"
+      CI_ARTIFACT=$(cat build-index.html | sed -n -E 's/.*(bazel(-[^-]*)?(-installer)?-'${OS}'-x86_64(-installer)?.sh).*/\1/p')
+      URL="${CI_INDEX_URL}/${CI_ARTIFACT}"
+
+      echo "artifact = $CI_ARTIFACT"
+      echo "download url = $URL"
+      rm build-index.html    
+    else
+      URL="https://github.com/bazelbuild/bazel/releases/download/${V}/bazel-${V}-installer-${OS}-x86_64.sh"
+    fi
+    wget -O install.sh "${URL}"
+    chmod +x install.sh
+    ./install.sh --user
+    rm -f install.sh
+  - cat .bazelrc.travis >> .bazelrc
 
 script:
-  - bash test_run.sh
+  - bash test_run.sh ci

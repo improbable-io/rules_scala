@@ -1,5 +1,5 @@
 # Scala Rules for Bazel
-[![Build Status](https://travis-ci.org/bazelbuild/rules_scala.svg?branch=master)](https://travis-ci.org/bazelbuild/rules_scala)
+[![Build Status](https://travis-ci.org/bazelbuild/rules_scala.svg?branch=master)](https://travis-ci.org/bazelbuild/rules_scala) [![Build Status](http://ci.bazel.io/buildStatus/icon?job=rules_scala)](http://ci.bazel.io/job/rules_scala)
 
 <div class="toc">
   <h2>Rules</h2>
@@ -19,19 +19,18 @@ and `scala_test`.
 ## Getting started
 
 In order to use `scala_library`, `scala_macro_library`, and `scala_binary`,
-you must have bazel 0.3.1 and add the following to your WORKSPACE file:
+you must have bazel 0.5.2 or later and add the following to your WORKSPACE file:
 
 ```python
-git_repository(
-    name = "io_bazel_rules_scala",
-    remote = "https://github.com/bazelbuild/rules_scala.git",
-    commit = "bdd5e298b95a2a0bb05bf520e787069dcba1d6e9", # update this as needed
-)
-git_repository(
-    name = "io_bazel",
-    remote = "git://github.com/bazelbuild/bazel.git",
-    tag = "0.3.1",
-)
+
+rules_scala_version="031e73c02e0d8bfcd06c6e4086cdfc7f3a3061a8" # update this as needed
+
+http_archive(
+             name = "io_bazel_rules_scala",
+             url = "https://github.com/bazelbuild/rules_scala/archive/%s.zip"%rules_scala_version,
+             type = "zip",
+             strip_prefix= "rules_scala-%s" % rules_scala_version
+             )
 
 load("@io_bazel_rules_scala//scala:scala.bzl", "scala_repositories")
 scala_repositories()
@@ -46,7 +45,7 @@ load("@io_bazel_rules_scala//scala:scala.bzl", "scala_library", "scala_binary", 
 ```
 You may wish to have these rules loaded by default using bazel's prelude. You can add the above to the file `tools/build_rules/prelude_bazel` in your repo (don't forget to have a, possibly empty, BUILD file there) and then it will be automatically prepended to every BUILD file in the workspace.
 
-To run with a persistant worker (much faster), you need to add
+To run with a persistent worker (much faster), you need to add
 ```
 build --strategy=Scalac=worker
 test --strategy=Scalac=worker
@@ -59,13 +58,13 @@ to your command line, or to enable by default for building/testing add it to you
 ## scala\_library / scala\_macro_library
 
 ```python
-scala_library(name, srcs, deps, runtime_deps, exports, data, main_class, resources, scalacopts, jvm_flags)
-scala_macro_library(name, srcs, deps, runtime_deps, exports, data, main_class, resources, scalacopts, jvm_flags)
+scala_library(name, srcs, deps, runtime_deps, exports, data, main_class, resources, resource_strip_prefix, scalacopts, jvm_flags, scalac_jvm_flags, javac_jvm_flags)
+scala_macro_library(name, srcs, deps, runtime_deps, exports, data, main_class, resources, resource_strip_prefix, scalacopts, jvm_flags, scalac_jvm_flags, javac_jvm_flags)
 ```
 
 `scala_library` generates a `.jar` file from `.scala` source files. This rule
 also creates an interface jar to avoid recompiling downstream targets unless
-then interface changes.
+their interface changes.
 
 `scala_macro_library` generates a `.jar` file from `.scala` source files when
 they contain macros. For macros, there are no interface jars because the macro
@@ -151,6 +150,17 @@ In order to make a java rule use this jar file, use the `java_import` rule.
       </td>
     </tr>
     <tr>
+      <td><code>resource_strip_prefix</code></td>
+      <td>
+        <p><code>String; optional</code></p>
+        <p>
+          The path prefix to strip from Java resources. If specified,
+          this path prefix is stripped from every file in the `resources` attribute.
+          It is an error for a resource file not to be under this directory.
+        </p>
+      </td>
+    </tr>
+    <tr>
       <td><code>scalacopts</code></td>
       <td>
         <p><code>List of strings; optional</code></p>
@@ -165,10 +175,32 @@ In order to make a java rule use this jar file, use the `java_import` rule.
     <tr>
       <td><code>jvm_flags</code></td>
       <td>
+        <p><code>List of strings; optional; deprecated</code></p>
+        <p>
+          Deprecated, superseded by scalac_jvm_flags and javac_jvm_flags. Is not used and is kept as backwards compatibility for the near future. Effectively jvm_flags is now an executable target attribute only.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>scalac_jvm_flags</code></td>
+      <td>
         <p><code>List of strings; optional</code></p>
         <p>
           List of JVM flags to be passed to scalac after the
           <code>scalacopts</code>. Subject to
+          <a href="http://bazel.io/docs/be/make-variables.html">Make variable
+          substitution</a> and
+          <a href="http://bazel.io/docs/be/common-definitions.html#borne-shell-tokenization">Bourne shell tokenization.</a>
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>javac_jvm_flags</code></td>
+      <td>
+        <p><code>List of strings; optional</code></p>
+        <p>
+          List of JVM flags to be passed to javac after the
+          <code>javacopts</code>. Subject to
           <a href="http://bazel.io/docs/be/make-variables.html">Make variable
           substitution</a> and
           <a href="http://bazel.io/docs/be/common-definitions.html#borne-shell-tokenization">Bourne shell tokenization.</a>
@@ -182,7 +214,7 @@ In order to make a java rule use this jar file, use the `java_import` rule.
 ## scala_binary
 
 ```python
-scala_binary(name, srcs, deps, runtime_deps, data, main_class, resources, scalacopts, jvm_flags)
+scala_binary(name, srcs, deps, runtime_deps, data, main_class, resources, resource_strip_prefix, scalacopts, jvm_flags, scalac_jvm_flags, javac_jvm_flags)
 ```
 
 `scala_binary` generates a Scala executable. It may depend on `scala_library`, `scala_macro_library`
@@ -258,6 +290,17 @@ A `scala_binary` requires a `main_class` attribute.
       </td>
     </tr>
     <tr>
+      <td><code>resource_strip_prefix</code></td>
+      <td>
+        <p><code>String; optional</code></p>
+        <p>
+          The path prefix to strip from Java resources. If specified,
+          this path prefix is stripped from every file in the `resources` attribute.
+          It is an error for a resource file not to be under this directory.
+        </p>
+      </td>
+    </tr>
+    <tr>
       <td><code>scalacopts</code></td>
       <td>
         <p><code>List of strings; optional</code></p>
@@ -274,8 +317,33 @@ A `scala_binary` requires a `main_class` attribute.
       <td>
         <p><code>List of strings; optional</code></p>
         <p>
+          List of JVM flags to be passed to the executing JVM. Subject to
+          <a href="http://bazel.io/docs/be/make-variables.html">Make variable
+          substitution</a> and
+          <a href="http://bazel.io/docs/be/common-definitions.html#borne-shell-tokenization">Bourne shell tokenization.</a>
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>scalac_jvm_flags</code></td>
+      <td>
+        <p><code>List of strings; optional</code></p>
+        <p>
           List of JVM flags to be passed to scalac after the
           <code>scalacopts</code>. Subject to
+          <a href="http://bazel.io/docs/be/make-variables.html">Make variable
+          substitution</a> and
+          <a href="http://bazel.io/docs/be/common-definitions.html#borne-shell-tokenization">Bourne shell tokenization.</a>
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>javac_jvm_flags</code></td>
+      <td>
+        <p><code>List of strings; optional</code></p>
+        <p>
+          List of JVM flags to be passed to javac after the
+          <code>javacopts</code>. Subject to
           <a href="http://bazel.io/docs/be/make-variables.html">Make variable
           substitution</a> and
           <a href="http://bazel.io/docs/be/common-definitions.html#borne-shell-tokenization">Bourne shell tokenization.</a>
@@ -289,7 +357,7 @@ A `scala_binary` requires a `main_class` attribute.
 ## scala_test
 
 ```python
-scala_test(name, srcs, suites, deps, data, main_class, resources, scalacopts, jvm_flags)
+scala_test(name, srcs, suites, deps, data, main_class, resources, resource_strip_prefix, scalacopts, jvm_flags, scalac_jvm_flags, javac_jvm_flags)
 ```
 
 `scala_test` generates a Scala executable which runs unit test suites written
@@ -305,7 +373,7 @@ populated and tests are not run.
 <a name="scala_repl"></a>
 ## scala_repl
 ```python
-scala_repl(name, deps, scalacopts, jvm_flags)
+scala_repl(name, deps, scalacopts, jvm_flags, scalac_jvm_flags, javac_jvm_flags)
 ```
 A scala repl allows you to add library dependendencies (not currently `scala_binary` targets)
 to generate a script to run which starts a REPL.
@@ -316,3 +384,98 @@ session. An example in this repo:
 bazel build test:HelloLibRepl
 bazel-bin/test/HelloLibRepl
 ```
+
+<a name="scala_library_suite"></a>
+## scala_library_suite
+
+The scala library suite allows you to define a glob or series of targets to generate sub
+scala libraries for. The outer target will export all of the inner targets. This allows splitting up
+of a series of independent files in a larger target into smaller ones. This lets us cache outputs better
+and also build the indvidual targets in parallel. Downstream targets should not be aware of its presence.
+
+<a name="scala_test_suite"></a>
+## scala_test_suite
+
+The scala test suite allows you to define a glob or series of targets to generate sub
+scala tests for. The outer target defines a native test suite to run all the inner tests. This allows splitting up
+of a series of independent tests from one target into several. This lets us cache outputs better
+and also build and test the indvidual targets in parallel.
+
+<a name="thrift_library"></a>
+## thrift_library
+
+```python
+load("@io_bazel_rules_scala//thrift:thrift.bzl", "thrift_library")
+thrift_library(name, srcs, deps, absolute_prefix, absolute_prefixes)
+```
+
+`thrift_library` generates a thrift source zip file. It should be consumed by a thrift compiler like `scrooge_scala_library`.
+
+<table class="table table-condensed table-bordered table-params">
+  <colgroup>
+    <col class="col-param" />
+    <col class="param-description" />
+  </colgroup>
+  <thead>
+    <tr>
+      <th colspan="2">Attributes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>name</code></td>
+      <td>
+        <p><code>Name, required</code></p>
+        <p>A unique name for this target</p>
+      </td>
+    </tr>
+      <td><code>srcs</code></td>
+      <td>
+        <p><code>List of labels, required</code></p>
+        <p>List of Thrift <code>.thrift</code> source files used to build the target</p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>deps</code></td>
+      <td>
+        <p><code>List of labels, optional</code></p>
+        <p>List of other thrift dependencies that this thrift depends on.</p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>absolute_prefix</code></td>
+      <td>
+        <p><code>string; optional (deprecated in favor of absolute_prefixes)</code></p>
+        <p>This string acts as a wildcard expression of the form *`string_value` that is removed from the start of the path.
+        Example: thrift is at `a/b/c/d/e/A.thrift` , prefix of `b/c/d`. Will mean other thrift targets can refer to this thrift
+        at `e/A.thrift`.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td><code>absolute_prefixes</code></td>
+      <td>
+        <p><code>List of strings; optional</code></p>
+        <p>Each of these strings acts as a wildcard expression of the form <code>*string_value</code> that is removed from the start of the path.
+        Example: thrift is at <code>a/b/c/d/e/A.thrift</code> , prefix of <code>b/c/d</code>. Will mean other thrift targets can refer to this thrift
+        at <code>e/A.thrift</code>. Exactly one of these must match all thrift paths within the target, more than one or zero will fail the build.
+        The main use case to have several here is to make a macro target you can share across several indvidual <code>thrift_library</code>, if source path is
+        <code>/src/thrift</code> or <code>/src/main/thrift</code> it can strip off the prefix without users needing to configure it per target.
+        </p>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+## Building from source
+Test & Build:
+```
+bash test_run.sh
+```
+This doesn't currently pass on OS X (see #136 for details) and so you can also use:
+
+```
+bazel test //test/...
+```
+Note `bazel test //...` will not work since we have a sub-folder on the root folder which is meant to be used in a failure scenario in the integration tests.
+Similarly to only build you should use `bazel build //src/...` due to that folder.

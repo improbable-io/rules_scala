@@ -1,27 +1,23 @@
 load("//scala:scala.bzl", "scala_binary", "scala_library")
 
 scala_library(
-  name = "generator_lib",
-  srcs = ["TwitterScroogeGenerator.scala"],
-  deps = [
-    "@scrooge_generator//jar",
-    "@util_core//jar",
-    "@util_logging//jar",
-    ":scala_parsers",
-  ],
-  visibility = ["//visibility:public"],
+    name = "generator_lib",
+    srcs = ["TwitterScroogeGenerator.scala"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//external:io_bazel_rules_scala/dependency/thrift/scrooge_generator",
+        "//src/java/io/bazel/rulesscala/io_utils",
+        "//src/java/io/bazel/rulesscala/jar",
+        "//src/java/io/bazel/rulesscala/worker",
+        "//src/scala/io/bazel/rules_scala/scrooge_support:compiler",
+    ],
 )
 
 scala_binary(
-  name = "generator",
-  main_class = "scripts.ScroogeGenerator",
-  deps = [
-    ":generator_lib",
-  ],
-  visibility = ["//visibility:public"],
-)
-
-java_import(
-  name = "scala_parsers",
-  jars = ["@scala//:lib/scala-parser-combinators_2.11-1.0.4.jar"],
+    name = "generator",
+    main_class = "scripts.ScroogeWorker",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":generator_lib",
+    ],
 )
